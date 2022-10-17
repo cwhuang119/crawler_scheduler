@@ -135,7 +135,7 @@ def crawl_data(ti,date):
     engine = get_engine()
     with engine.connect() as conn:
         row = conn.execute(text(f"SELECT date FROM tw_stock WHERE date='{date}'")).first()
-    if row!=None:
+    if row==None:
         print("Start crawl",date)
         data = FinCrawler.get('tw_stock_price_daily',{'date':date})
         ti.xcom_push(key = 'data', value = data)
@@ -143,7 +143,7 @@ def crawl_data(ti,date):
         ti.xcom_push(key = 'data_in_db', value = False)
     else:
         print('data already in db')
-        ti.xcom_push(key = 'data_in_db', value = False)
+        ti.xcom_push(key = 'data_in_db', value = True)
 
 def check_if_data_exist(ti):
     if ti.xcom_pull(task_ids='crawl_data',key='data_in_db')==False:
