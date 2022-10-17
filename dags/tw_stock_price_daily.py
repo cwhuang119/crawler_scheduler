@@ -132,34 +132,24 @@ def create_table_if_not_exist():
         con.execute(statement)
 
 def crawl_data(ti,date):
+    insert_db = False
     engine = get_engine()
     with engine.connect() as conn:
-        row = conn.execute(text(f"SELECT date FROM tw_stock WHERE date='{date}'")).first()
-    if row==None:
+        rows = conn.execute(text(f"SELECT date FROM tw_stock WHERE date='{date}'")).all()
+    if len(rows)==0:
         print("Start crawl",date)
         data = FinCrawler.get('tw_stock_price_daily',{'date':date})
-        ti.xcom_push(key = 'data', value = data)
-        time.sleep(4)
-        ti.xcom_push(key = 'data_in_db', value = False)
+        if len(data)>0:
+            insert_db = True
+            ti.xcom_push(key = 'data', value = data)
+        else:
+            print('empty data')
     else:
         print('data already in db')
-        ti.xcom_push(key = 'data_in_db', value = True)
-
-def check_if_data_exist(ti):
-    if ti.xcom_pull(task_ids='crawl_data',key='data_in_db')==False:
-    
-        data = ti.xcom_pull(task_ids='crawl_data',key='data')
-        if len(data)>0:
-            print('data exist')
-            ti.xcom_push(key = 'empty_data', value = False)
-        else:
-            print('date not exist')
-            ti.xcom_push(key = 'empty_data', value = True)
-    else:
-        ti.xcom_push(key = 'empty_data', value = True)
+    ti.xcom_push(key = 'insert_db', value = insert_db)
 
 def format_data(ti):
-    if ti.xcom_pull(task_ids='check_if_data_exist',key='empty')==False:
+    if ti.xcom_pull(task_ids='crawl_data',key='insert_db'):
         # seperate common and other
         data = ti.xcom_pull(task_ids='crawl_data',key='data')
         common_data,other_data = seperate_common_other_data(data)
@@ -167,7 +157,7 @@ def format_data(ti):
         ti.xcom_push(key = 'other_data', value = other_data)
 
 def insert_db_common(ti):
-    if ti.xcom_pull(task_ids='check_if_data_exist',key='empty')==False:
+    if ti.xcom_pull(task_ids='crawl_data',key='insert_db'):
         TW_STOCK_DB_CONNECT_STR = Variable.get("TW_STOCK_DB_CONNECT_STR")
         engine = create_engine(TW_STOCK_DB_CONNECT_STR)
         common_data = ti.xcom_pull(task_ids='format_data',key='common_data')
@@ -176,7 +166,7 @@ def insert_db_common(ti):
             conn.execute(text(common_data_statement))
 
 def insert_db_other(ti):
-    if ti.xcom_pull(task_ids='check_if_data_exist',key='empty')==False:
+    if ti.xcom_pull(task_ids='crawl_data',key='insert_db'):
         TW_STOCK_DB_CONNECT_STR = Variable.get("TW_STOCK_DB_CONNECT_STR")
         engine = create_engine(TW_STOCK_DB_CONNECT_STR)
         other_data = ti.xcom_pull(task_ids='format_data',key='other_data')
@@ -199,10 +189,6 @@ with DAG('tw_stock_price_daily', default_args=default_args, schedule_interval='0
         python_callable=crawl_data,
         op_kwargs = {"date": datetime.strftime(date.today(),'%Y%m%d')}
     )
-    check_if_data_exist_task = PythonOperator(
-        task_id='check_if_data_exist',
-        python_callable=check_if_data_exist
-    )
 
     format_data_task = PythonOperator(
         task_id='format_data',
@@ -224,7 +210,6 @@ with DAG('tw_stock_price_daily', default_args=default_args, schedule_interval='0
         python_callable=send_notification
     )
     create_table_if_not_exist_task >> crawl_data_task
-    crawl_data_task >> check_if_data_exist_task
-    check_if_data_exist_task >> format_data_task
+    crawl_data_task >> format_data_task
     format_data_task >> insert_db_common_task >> send_notification_task
     format_data_task >> insert_db_other_task >> send_notification_task
