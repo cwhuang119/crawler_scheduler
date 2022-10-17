@@ -5,3 +5,6 @@ airflow-up:
 	docker-compose up
 airflow-down:
 	docker-compose down
+
+airflow-delete:
+	docker-compose down --volumes --rmi all

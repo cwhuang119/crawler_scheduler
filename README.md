@@ -25,3 +25,9 @@ docker compose up
 ### Ariflow Variable setting
 1. TW_STOCK_DB_CONNECT_STR: postgresql://username:password@host:port/db_name
 
+
+
+
+#### FLOW CHART
+
+![image](imgs/tw_stock_price_flow.png)
