@@ -132,14 +132,15 @@ def create_table_if_not_exist():
         con.execute(statement)
 
 def crawl_data(ti,date):
-    print('date',date)
     insert_db = False
     engine = get_engine()
     with engine.connect() as conn:
         rows = conn.execute(text(f"SELECT date FROM tw_stock WHERE date='{date}'")).all()
     if len(rows)==0:
         print("Start crawl",date)
+        time.sleep(4)
         data = FinCrawler.get('tw_stock_price_daily',{'date':date})
+        
         if len(data)>0:
             insert_db = True
             ti.xcom_push(key = 'data', value = data)
@@ -178,40 +179,47 @@ def insert_db_other(ti):
 def send_notification():
     print('send notification')
 
-with DAG('tw_stock_price_daily', default_args=default_args, schedule_interval='0 10 * * *') as dag:
 
-    create_table_if_not_exist_task = PythonOperator(
-        task_id='create_table_if_not_exist',
-        python_callable=create_table_if_not_exist
-    )
+last_date = datetime.date(2022,10,18)
+start_date = datetime.date(2020,1,1)
+date_list=[last_date-datetime.timedelta(days=x) for x in range((last_date-start_date).days)]
+formated_data_list = [datetime.datetime.strftime(x,'%Y%m%d') for x in date_list]
 
-    crawl_data_task = PythonOperator(
-        task_id='crawl_data',
-        python_callable=crawl_data,
-        op_kwargs = {"date": '{{ds}}'},
-        task_concurrency=1
-    )
+for target_date in formated_data_list:
 
-    format_data_task = PythonOperator(
-        task_id='format_data',
-        python_callable=format_data
-    )
+    with DAG(f'tw_stock_price_daily_past_date_{target_date}', default_args=default_args) as dag:
 
-    insert_db_common_task = PythonOperator(
-        task_id='insert_db_common',
-        python_callable=insert_db_common
-    )
+        create_table_if_not_exist_task = PythonOperator(
+            task_id='create_table_if_not_exist',
+            python_callable=create_table_if_not_exist
+        )
 
-    insert_db_other_task = PythonOperator(
-        task_id='insert_db_other',
-        python_callable=insert_db_other
-    )
+        crawl_data_task = PythonOperator(
+            task_id='crawl_data',
+            python_callable=crawl_data,
+            op_kwargs = {"date": datetime.strftime(date.today(),'%Y%m%d')}
+        )
 
-    send_notification_task = PythonOperator(
-        task_id='send_notification',
-        python_callable=send_notification
-    )
-    create_table_if_not_exist_task >> crawl_data_task
-    crawl_data_task >> format_data_task
-    format_data_task >> insert_db_common_task >> send_notification_task
-    format_data_task >> insert_db_other_task >> send_notification_task
+        format_data_task = PythonOperator(
+            task_id='format_data',
+            python_callable=format_data
+        )
+
+        insert_db_common_task = PythonOperator(
+            task_id='insert_db_common',
+            python_callable=insert_db_common
+        )
+
+        insert_db_other_task = PythonOperator(
+            task_id='insert_db_other',
+            python_callable=insert_db_other
+        )
+
+        send_notification_task = PythonOperator(
+            task_id='send_notification',
+            python_callable=send_notification
+        )
+        create_table_if_not_exist_task >> crawl_data_task
+        crawl_data_task >> format_data_task
+        format_data_task >> insert_db_common_task >> send_notification_task
+        format_data_task >> insert_db_other_task >> send_notification_task
