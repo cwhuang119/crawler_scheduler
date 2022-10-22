@@ -132,6 +132,7 @@ def create_table_if_not_exist():
         con.execute(statement)
 
 def crawl_data(ti,date):
+    print('date',date)
     insert_db = False
     engine = get_engine()
     with engine.connect() as conn:
@@ -187,7 +188,8 @@ with DAG('tw_stock_price_daily', default_args=default_args, schedule_interval='0
     crawl_data_task = PythonOperator(
         task_id='crawl_data',
         python_callable=crawl_data,
-        op_kwargs = {"date": datetime.strftime(date.today(),'%Y%m%d')}
+        op_kwargs = {"date": '{{ds}}'},
+        task_concurrency=1
     )
 
     format_data_task = PythonOperator(
